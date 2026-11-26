@@ -53,6 +53,21 @@ jobs:
       - name: Create Android project
         run: npx cap add android
 
+      - name: Correct Android LAN plugin SDK import
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("tools/android/LanNetPlugin.java")
+          source = path.read_text(encoding="utf-8")
+          source = source.replace(
+              "import android.net.wifi.DhcpInfo;",
+              "import android.net.DhcpInfo;"
+          )
+          if "import android.net.DhcpInfo;" not in source:
+              raise SystemExit("DhcpInfo import was not corrected")
+          path.write_text(source, encoding="utf-8")
+          PY
+
       - name: Patch Android (landscape, fullscreen, icon, signing, LAN plugin)
         run: python3 tools/patch_android.py
 
