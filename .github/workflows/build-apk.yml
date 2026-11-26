@@ -14,13 +14,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Unpack game source
+      - name: Unpack current game source safely
+        shell: bash
         run: |
-          test -f LastCampfire.zip
-          unzip -q LastCampfire.zip
-          test -f LastCampfire/package.json
-          test -f LastCampfire/capacitor.config.json
-          test -f LastCampfire/tools/patch_android.py
+          set -euo pipefail
+          test -s LastCampfire.zip
+          mkdir -p extracted
+          unzip -q LastCampfire.zip -d extracted
+          for file in package.json capacitor.config.json www/index.html www/js/game.js www/js/net.js tools/patch_android.py tools/android/LanCore.java tools/android/LanNetPlugin.java tools/debug.keystore resources/icon.png; do
+            test -s "extracted/$file" || { echo "::error::Missing archive file: $file"; exit 1; }
+          done
+          cp -a extracted/www extracted/tools extracted/resources extracted/package.json extracted/capacitor.config.json .
+          test -f .github/workflows/build-apk.yml
 
       - uses: actions/setup-node@v4
         with:
@@ -35,32 +40,40 @@ jobs:
         with:
           packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
 
+      - name: Check JavaScript syntax
+        run: |
+          node --check www/js/game.js
+          node --check www/js/net.js
+          node --check www/js/audio.js
+          node --check www/js/sprites.js
+
       - name: Install dependencies
-        working-directory: LastCampfire
         run: npm install
 
       - name: Create Android project
-        working-directory: LastCampfire
         run: npx cap add android
 
-      - name: Patch Android (landscape, fullscreen, icon, signing)
-        working-directory: LastCampfire
+      - name: Patch Android (landscape, fullscreen, icon, signing, LAN plugin)
         run: python3 tools/patch_android.py
 
-      - name: Sync web files
-        working-directory: LastCampfire
+      - name: Sync web files and native plugins
         run: npx cap sync android
 
       - name: Build debug APK
-        working-directory: LastCampfire/android
+        working-directory: android
         run: |
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon
+
+      - name: Verify APK exists
+        run: |
+          test -s android/app/build/outputs/apk/debug/app-debug.apk
+          ls -lh android/app/build/outputs/apk/debug/app-debug.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: Last-Campfire-APK
-          path: LastCampfire/android/app/build/outputs/apk/debug/app-debug.apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
